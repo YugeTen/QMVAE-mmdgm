@@ -90,19 +90,19 @@ class MVAE(nn.Module):
         txt_recon  = self.svhn_dec(z)
         return img_recon, txt_recon, mu, logvar
 
-    def infer(self, image=None, text=None): 
-        batch_size = image.size(0) if image is not None else text.size(0)
+    def infer(self, mnist=None, svhn=None):
+        batch_size = mnist.size(0) if mnist is not None else svhn.size(0)
         use_cuda   = next(self.parameters()).is_cuda  # check if CUDA
         # initialize the universal prior expert
         mu, logvar = prior_expert((1, batch_size, self.n_latents), 
                                   use_cuda=use_cuda)
-        if image is not None:
-            img_mu, img_logvar = self.mnist_enc(image)
+        if mnist is not None:
+            img_mu, img_logvar = self.mnist_enc(mnist)
             mu     = torch.cat((mu, img_mu.unsqueeze(0)), dim=0)
             logvar = torch.cat((logvar, img_logvar.unsqueeze(0)), dim=0)
 
-        if text is not None:
-            txt_mu, txt_logvar = self.svhn_enc(text)
+        if svhn is not None:
+            txt_mu, txt_logvar = self.svhn_enc(svhn)
             mu     = torch.cat((mu, txt_mu.unsqueeze(0)), dim=0)
             logvar = torch.cat((logvar, txt_logvar.unsqueeze(0)), dim=0)
 

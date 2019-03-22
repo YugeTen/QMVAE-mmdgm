@@ -7,7 +7,7 @@ import shutil
 from torchvision import transforms
 
 def elbo_loss(recon_image, image, recon_text, text, mu, logvar,
-              lambda_image=1.0, lambda_text=1.0, annealing_factor=1):
+              lambda_mnist=1.0, lambda_svhn=1.0, annealing_factor=1):
     """Bimodal ELBO loss function.
 
     @param recon_image: torch.Tensor
@@ -22,10 +22,10 @@ def elbo_loss(recon_image, image, recon_text, text, mu, logvar,
                mean of latent distribution
     @param logvar: torch.Tensor
                    log-variance of latent distribution
-    @param lambda_image: float [default: 1.0]
-                         weight for image BCE
-    @param lambda_text: float [default: 1.0]
-                       weight for text BCE
+    @param lambda_mnist: float [default: 1.0]
+                         weight for mnist BCE
+    @param lambda_svhn: float [default: 1.0]
+                       weight for svhn BCE
     @param annealing_factor: integer [default: 1]
                              multiplier for KL divergence term
     @return ELBO: torch.Tensor
@@ -45,7 +45,7 @@ def elbo_loss(recon_image, image, recon_text, text, mu, logvar,
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-    ELBO = torch.mean(lambda_image * image_bce + lambda_text * text_bce
+    ELBO = torch.mean(lambda_mnist * image_bce + lambda_svhn * text_bce
                       + annealing_factor * KLD)
     return ELBO
 

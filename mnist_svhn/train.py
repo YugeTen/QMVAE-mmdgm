@@ -33,10 +33,10 @@ if __name__ == "__main__":
                         help='learning rate [default: 1e-3]')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status [default: 10]')
-    parser.add_argument('--lambda-image', type=float, default=3.92,
-                        help='multipler for image reconstruction [default: 1]')
-    parser.add_argument('--lambda-text', type=float, default=1.,
-                        help='multipler for text reconstruction [default: 10]')
+    parser.add_argument('--lambda-mnist', type=float, default=3.92,
+                        help='scaling for mnist reconstruction [default: 3.92]')
+    parser.add_argument('--lambda-svhn', type=float, default=1.,
+                        help='scaling for svhn reconstruction [default: 1]')
     parser.add_argument('--cuda', action='store_true', default=False,
                         help='enables CUDA training [default: False]')
     args = parser.parse_args()
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
         # NOTE: is_paired is 1 if the example is paired
         for batch_idx, dataT in enumerate(train_loader):
-            image, text = unpack_data(dataT, device=device)
+            mnist, svhn = unpack_data(dataT, device=device)
 
             if epoch < args.annealing_epochs:
                 # compute the KL annealing factor for the current mini-batch in the current epoch
@@ -75,27 +75,23 @@ if __name__ == "__main__":
                 # by default the KL annealing factor is unity
                 annealing_factor = 1.0
 
-            batch_size = len(image)
-
-            # refresh the optimizer
+            batch_size = len(mnist)
             optimizer.zero_grad()
+            recon_mnist_1, recon_svhn_1, mu_1, logvar_1 = model(mnist, svhn)
+            recon_mnist_2, recon_svhn_2, mu_2, logvar_2 = model(mnist)
+            recon_mnist_3, recon_svhn_3, mu_3, logvar_3 = model(text=svhn)
 
-            # pass data through model
-            recon_image_1, recon_text_1, mu_1, logvar_1 = model(image, text)
-            recon_image_2, recon_text_2, mu_2, logvar_2 = model(image)
-            recon_image_3, recon_text_3, mu_3, logvar_3 = model(text=text)
-                
             # compute ELBO for each data combo
-            joint_loss = elbo_loss(recon_image_1, image, recon_text_1, text, mu_1, logvar_1, 
-                                   lambda_image=args.lambda_image, lambda_text=args.lambda_text,
+            joint_loss = elbo_loss(recon_mnist_1, mnist, recon_svhn_1, svhn, mu_1, logvar_1,
+                                   lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
                                    annealing_factor=annealing_factor)
-            image_loss = elbo_loss(recon_image_2, image, None, None, mu_2, logvar_2, 
-                                   lambda_image=args.lambda_image, lambda_text=args.lambda_text,
+            mnist_loss = elbo_loss(recon_mnist_2, mnist, None, None, mu_2, logvar_2,
+                                   lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
                                    annealing_factor=annealing_factor)
-            text_loss  = elbo_loss(None, None, recon_text_3, text, mu_3, logvar_3, 
-                                   lambda_image=args.lambda_image, lambda_text=args.lambda_text,
-                                  annealing_factor=annealing_factor)
-            train_loss = joint_loss + image_loss + text_loss
+            svhn_loss  = elbo_loss(None, None, recon_svhn_3, svhn, mu_3, logvar_3,
+                                   lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
+                                   annealing_factor=annealing_factor)
+            train_loss = joint_loss + mnist_loss + svhn_loss
             train_loss_meter.update(train_loss.data.item(), batch_size)
             
             # compute gradients and take step
@@ -104,7 +100,7 @@ if __name__ == "__main__":
 
             if batch_idx % args.log_interval == 0:
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAnnealing-Factor: {:.3f}'.format(
-                    epoch, batch_idx * len(image), len(train_loader.dataset),
+                    epoch, batch_idx * len(mnist), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), train_loss_meter.avg, annealing_factor))
 
         print('====> Epoch: {}\tLoss: {:.4f}'.format(epoch, train_loss_meter.avg))
@@ -115,19 +111,19 @@ if __name__ == "__main__":
         test_loss_meter = AverageMeter()
 
         for batch_idx, dataT in enumerate(test_loader):
-            image, text = unpack_data(dataT, device=device)
+            mnist, svhn = unpack_data(dataT, device=device)
 
-            batch_size = len(image)
+            batch_size = len(mnist)
 
             with torch.no_grad():
-                recon_image_1, recon_text_1, mu_1, logvar_1 = model(image, text)
-                recon_image_2, recon_text_2, mu_2, logvar_2 = model(image)
-                recon_image_3, recon_text_3, mu_3, logvar_3 = model(text=text)
+                recon_mnist_1, recon_svhn_1, mu_1, logvar_1 = model(mnist, svhn)
+                recon_mnist_2, recon_svhn_2, mu_2, logvar_2 = model(mnist)
+                recon_mnist_3, recon_svhn_3, mu_3, logvar_3 = model(text=svhn)
 
-                joint_loss = elbo_loss(recon_image_1, image, recon_text_1, text, mu_1, logvar_1)
-                image_loss = elbo_loss(recon_image_2, image, None, None, mu_2, logvar_2)
-                text_loss  = elbo_loss(None, None, recon_text_3, text, mu_3, logvar_3)
-                test_loss  = joint_loss + image_loss + text_loss
+                joint_loss = elbo_loss(recon_mnist_1, mnist, recon_svhn_1, svhn, mu_1, logvar_1)
+                mnist_loss = elbo_loss(recon_mnist_2, mnist, None, None, mu_2, logvar_2)
+                svhn_loss  = elbo_loss(None, None, recon_svhn_3, svhn, mu_3, logvar_3)
+                test_loss  = joint_loss + mnist_loss + svhn_loss
                 test_loss_meter.update(test_loss.item(), batch_size)
 
         print('====> Test Loss: {:.4f}'.format(test_loss_meter.avg))
@@ -136,9 +132,9 @@ if __name__ == "__main__":
     def generate(N):
         model.eval()
         for batch_idx, dataT in enumerate(test_loader):
-            image, text = unpack_data(dataT, device=device)
+            mnist, svhn = unpack_data(dataT, device=device)
             break
-        gt = [image[:N], text[:N], torch.cat([resize_img(image[:N], text[:N]), text[:N]])]
+        gt = [mnist[:N], svhn[:N], torch.cat([resize_img(mnist[:N], svhn[:N]), svhn[:N]])]
         zss = OrderedDict()
 
         # mode 1: generate
@@ -146,15 +142,15 @@ if __name__ == "__main__":
                               torch.ones((N * N, model.n_latents)).to(device)]
 
         # mode 2: mnist --> mnist, mnist --> svhn
-        mu, logvar = model.infer(image=gt[0])
+        mu, logvar = model.infer(mnist=gt[0])
         zss['recon_0'] = [mu, logvar.mul(0.5).exp_()]
 
         # mode 3: svhn --> mnist, svhn --> svhn
-        mu, logvar = model.infer(text=gt[1])
+        mu, logvar = model.infer(svhn=gt[1])
         zss['recon_1'] = [mu, logvar.mul(0.5).exp_()]
 
         # mode 4: mnist, svhn --> mnist, mnist, svhn --> svhn
-        mu, logvar = model.infer(image=gt[0], text=gt[1])
+        mu, logvar = model.infer(mnist=gt[0], svhn=gt[1])
         zss['recon_2'] = [mu, logvar.mul(0.5).exp_()]
 
         gt[0] = resize_img(gt[0], gt[1])
@@ -168,25 +164,25 @@ if __name__ == "__main__":
                 sample = torch.randn(N, model.n_latents).to(device)
                 sample = sample.mul(std).add_(mu)
 
-            # generate image and text
-            img_recon = torch.sigmoid(model.mnist_dec(sample)).view(-1, 1, 28, 28).cpu().data
-            txt_recon = torch.sigmoid(model.svhn_dec(sample)).view(-1, 3, 32, 32).cpu().data
-            img_recon = resize_img(img_recon, txt_recon)
+            # generate
+            mnist_recon = torch.sigmoid(model.mnist_dec(sample)).view(-1, 1, 28, 28).cpu().data
+            svhn_recon = torch.sigmoid(model.svhn_dec(sample)).view(-1, 3, 32, 32).cpu().data
+            mnist_recon = resize_img(mnist_recon, svhn_recon)
 
             if key == 'gen_samples':
-                save_image(img_recon, '{}/gen_samples_0_{:03d}.png'.format(runPath, epoch), nrow=N)
-                save_image(txt_recon, '{}/gen_samples_1_{:03d}.png'.format(runPath, epoch), nrow=N)
+                save_image(mnist_recon, '{}/gen_samples_0_{:03d}.png'.format(runPath, epoch), nrow=N)
+                save_image(svhn_recon, '{}/gen_samples_1_{:03d}.png'.format(runPath, epoch), nrow=N)
             else:
 
                 gt_idx = key.split('_')[-1]
-                comp_img = torch.cat([gt[int(gt_idx)].cpu(), img_recon])
-                comp_txt = torch.cat([gt[int(gt_idx)].cpu(), txt_recon])
+                comp_img = torch.cat([gt[int(gt_idx)].cpu(), mnist_recon])
+                comp_txt = torch.cat([gt[int(gt_idx)].cpu(), svhn_recon])
                 save_image(comp_img, '{}/{}x0_{:03d}.png'.format(runPath, key, epoch))
                 save_image(comp_txt, '{}/{}x1_{:03d}.png'.format(runPath, key, epoch))
 
     best_loss = sys.maxsize
     for epoch in range(1, args.epochs + 1):
-        # train(epoch)
+        train(epoch)
         generate(N=8)
         test_loss = test()
         is_best   = test_loss < best_loss
