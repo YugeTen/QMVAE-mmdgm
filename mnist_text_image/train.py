@@ -2,12 +2,20 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
 
-import sys
+import torch
 import torch.optim as optim
-from torch.autograd import Variable
+from torchvision.utils import save_image
 
-from utils import *
+import os
+import sys
+import datetime
+from pathlib import Path
+from tempfile import mkdtemp
+from collections import OrderedDict
 
+from model import MVAE
+from utils import elbo_loss, AverageMeter, unpack_data, \
+    save_checkpoint,resize_img, Logger
 
 
 if __name__ == "__main__":
@@ -36,6 +44,13 @@ if __name__ == "__main__":
     device = torch.device("cuda" if args.cuda else "cpu")
 
     os.makedirs('./trained_models', exist_ok=True)
+    runId = datetime.datetime.now().isoformat()
+    experiment_dir = Path('experiments/')
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    runPath = mkdtemp(prefix=runId, dir=str(experiment_dir))
+    sys.stdout = Logger('{}/run.log'.format(runPath))
+    print('Expt:', runPath)
+    print('RunID:', runId)
 
     model     = MVAE(args.n_latents)
     model.to(device)
@@ -95,37 +110,85 @@ if __name__ == "__main__":
         print('====> Epoch: {}\tLoss: {:.4f}'.format(epoch, train_loss_meter.avg))
 
 
-    def test(epoch):
+    def test():
         model.eval()
         test_loss_meter = AverageMeter()
 
-        for batch_idx, (image, text) in enumerate(test_loader):
-            if args.cuda:
-                image  = image.cuda()
-                text   = text.cuda()
+        for batch_idx, dataT in enumerate(test_loader):
+            image, text = unpack_data(dataT, device=device)
 
-            image = Variable(image, volatile=True)
-            text  = Variable(text, volatile=True)
             batch_size = len(image)
 
-            recon_image_1, recon_text_1, mu_1, logvar_1 = model(image, text)
-            recon_image_2, recon_text_2, mu_2, logvar_2 = model(image)
-            recon_image_3, recon_text_3, mu_3, logvar_3 = model(text=text)
+            with torch.no_grad():
+                recon_image_1, recon_text_1, mu_1, logvar_1 = model(image, text)
+                recon_image_2, recon_text_2, mu_2, logvar_2 = model(image)
+                recon_image_3, recon_text_3, mu_3, logvar_3 = model(text=text)
 
-            joint_loss = elbo_loss(recon_image_1, image, recon_text_1, text, mu_1, logvar_1)
-            image_loss = elbo_loss(recon_image_2, image, None, None, mu_2, logvar_2)
-            text_loss  = elbo_loss(None, None, recon_text_3, text, mu_3, logvar_3)
-            test_loss  = joint_loss + image_loss + text_loss
-            test_loss_meter.update(test_loss.item(), batch_size)
+                joint_loss = elbo_loss(recon_image_1, image, recon_text_1, text, mu_1, logvar_1)
+                image_loss = elbo_loss(recon_image_2, image, None, None, mu_2, logvar_2)
+                text_loss  = elbo_loss(None, None, recon_text_3, text, mu_3, logvar_3)
+                test_loss  = joint_loss + image_loss + text_loss
+                test_loss_meter.update(test_loss.item(), batch_size)
 
         print('====> Test Loss: {:.4f}'.format(test_loss_meter.avg))
         return test_loss_meter.avg
 
-    
+    def generate(N):
+        model.eval()
+        for batch_idx, dataT in enumerate(test_loader):
+            image, text = unpack_data(dataT, device=device)
+            break
+        gt = [image[:N], text[:N], torch.cat([resize_img(image[:N], text[:N]), text[:N]])]
+        zss = OrderedDict()
+
+        # mode 1: generate
+        zss['gen_samples'] = [torch.zeros((N * N, model.n_latents)).to(device),
+                              torch.ones((N * N, model.n_latents)).to(device)]
+
+        # mode 2: mnist --> mnist, mnist --> svhn
+        mu, logvar = model.infer(image=gt[0])
+        zss['recon_0'] = [mu, logvar.mul(0.5).exp_()]
+
+        # mode 3: svhn --> mnist, svhn --> svhn
+        mu, logvar = model.infer(text=gt[1])
+        zss['recon_1'] = [mu, logvar.mul(0.5).exp_()]
+
+        # mode 4: mnist, svhn --> mnist, mnist, svhn --> svhn
+        mu, logvar = model.infer(image=gt[0], text=gt[1])
+        zss['recon_2'] = [mu, logvar.mul(0.5).exp_()]
+
+        gt[0] = resize_img(gt[0], gt[1])
+
+        for key, (mu, std) in zss.items():
+            # sample from particular gaussian by multiplying + adding
+            if key == 'gen_samples':
+                sample = torch.randn(N * N, model.n_latents).to(device)
+                sample = sample.mul(std).add_(mu)
+            else:
+                sample = torch.randn(N, model.n_latents).to(device)
+                sample = sample.mul(std).add_(mu)
+
+            # generate image and text
+            img_recon = torch.sigmoid(model.mnist_dec(sample)).view(-1, 1, 28, 28).cpu().data
+            txt_recon = torch.sigmoid(model.svhn_dec(sample)).view(-1, 3, 32, 32).cpu().data
+            img_recon = resize_img(img_recon, txt_recon)
+
+            if key == 'gen_samples':
+                save_image(img_recon, '{}/gen_samples_0_{:03d}.png'.format(runPath, epoch), nrow=N)
+                save_image(txt_recon, '{}/gen_samples_1_{:03d}.png'.format(runPath, epoch), nrow=N)
+            else:
+
+                gt_idx = key.split('_')[-1]
+                comp_img = torch.cat([gt[int(gt_idx)].cpu(), img_recon])
+                comp_txt = torch.cat([gt[int(gt_idx)].cpu(), txt_recon])
+                save_image(comp_img, '{}/{}x0_{:03d}.png'.format(runPath, key, epoch))
+                save_image(comp_txt, '{}/{}x1_{:03d}.png'.format(runPath, key, epoch))
+
     best_loss = sys.maxsize
     for epoch in range(1, args.epochs + 1):
-        train(epoch)
-        test_loss = test(epoch)
+        # train(epoch)
+        generate(N=8)
+        test_loss = test()
         is_best   = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
         # save the best model and current model
@@ -134,4 +197,4 @@ if __name__ == "__main__":
             'best_loss': best_loss,
             'n_latents': args.n_latents,
             'optimizer' : optimizer.state_dict(),
-        }, is_best, folder='./trained_models')   
+        }, is_best, folder=runPath)

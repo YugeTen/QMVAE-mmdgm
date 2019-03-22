@@ -2,7 +2,9 @@ from model import MVAE
 
 import torch
 import os
+import sys
 import shutil
+from torchvision import transforms
 
 def elbo_loss(recon_image, image, recon_text, text, mu, logvar,
               lambda_image=1.0, lambda_text=1.0, annealing_factor=1):
@@ -115,3 +117,28 @@ def load_checkpoint(file_path, use_cuda=False):
     model = MVAE(checkpoint['n_latents'])
     model.load_state_dict(checkpoint['state_dict'])
     return model
+
+def resize_img(img, ref):
+    tx = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize(ref.size(-1)),  # use last dim assuming square image
+        transforms.ToTensor()
+    ])
+    return torch.stack([tx(_img) for _img in img.cpu()]).to(img.device).expand_as(ref)
+
+# https://stackoverflow.com/questions/14906764/how-to-redirect-stdout-to-both-file-and-console-with-scripting
+class Logger(object):
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        # this flush method is needed for python 3 compatibility.
+        # this handles the flush command by doing nothing.
+        # you might want to specify some extra behavior here.
+        pass
+
