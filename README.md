@@ -7,3 +7,5 @@ Identical to [mm-dgm](https://github.com/iffsid/mm-dgm).
 ## How to run
 Run `main.py` in `mnist_svhn/`. Results can be found in `mnist_svhn/experiments`.
 
+## Results
+See [issue #1](https://github.com/YugeTen/QMVAE-mmdgm/issues/1)
