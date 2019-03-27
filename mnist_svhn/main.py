@@ -4,11 +4,12 @@ from __future__ import absolute_import
 
 import torch
 import torch.optim as optim
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 
 import os
 import sys
 import datetime
+from numpy import sqrt
 from pathlib import Path
 from tempfile import mkdtemp
 from collections import OrderedDict
@@ -129,7 +130,7 @@ if __name__ == "__main__":
         print('====> Test Loss: {:.4f}'.format(test_loss_meter.avg))
         return test_loss_meter.avg
 
-    def generate(N):
+    def generate(N, K):
         model.eval()
         for batch_idx, dataT in enumerate(test_loader):
             mnist, svhn = unpack_data(dataT, device=device)
@@ -165,25 +166,32 @@ if __name__ == "__main__":
                 sample = sample.mul(std).add_(mu)
 
             # generate
-            mnist_recon = torch.sigmoid(model.mnist_dec(sample)).view(-1, 1, 28, 28).cpu().data
-            svhn_recon = torch.sigmoid(model.svhn_dec(sample)).view(-1, 3, 32, 32).cpu().data
-            mnist_recon = resize_img(mnist_recon, svhn_recon)
+            mnist_mean = torch.sigmoid(model.mnist_dec(sample)).view(-1, 1, 28, 28)
+            mnist_std = torch.tensor([0.1]).expand_as(mnist_mean).to(device)
+            svhn_mean = torch.sigmoid(model.svhn_dec(sample)).view(-1, 3, 32, 32)
+            svhn_std = torch.tensor([0.1]).expand_as(svhn_mean).to(device)
 
             if key == 'gen_samples':
-                save_image(mnist_recon, '{}/gen_samples_0_{:03d}.png'.format(runPath, epoch), nrow=N)
-                save_image(svhn_recon, '{}/gen_samples_1_{:03d}.png'.format(runPath, epoch), nrow=N)
-            else:
+                mnist_sample = torch.randn((K,*(mnist_mean.size()))).to(device)
+                mnist_gen = mnist_sample.mul(mnist_std).add_(mnist_mean).transpose(0,1)
+                ms = [make_grid(t, nrow=int(sqrt(K)), padding=0) for t in mnist_gen.data.cpu()]
+                save_image(torch.stack(ms), '{}/gen_samples_0_{:03d}.png'.format(runPath, epoch), nrow=N)
 
+                svhn_sample = torch.randn((K,*(svhn_mean.size()))).to(device)
+                svhn_gen = svhn_sample.mul(svhn_std).add_(svhn_mean).transpose(0,1)
+                ss = [make_grid(t, nrow=int(sqrt(K)), padding=0) for t in svhn_gen.data.cpu()]
+                save_image(torch.stack(ss), '{}/gen_samples_1_{:03d}.png'.format(runPath, epoch), nrow=N)
+            else:
                 gt_idx = key.split('_')[-1]
-                comp_img = torch.cat([gt[int(gt_idx)].cpu(), mnist_recon])
-                comp_txt = torch.cat([gt[int(gt_idx)].cpu(), svhn_recon])
-                save_image(comp_img, '{}/{}x0_{:03d}.png'.format(runPath, key, epoch))
-                save_image(comp_txt, '{}/{}x1_{:03d}.png'.format(runPath, key, epoch))
+                mnist_recon = torch.cat([gt[int(gt_idx)].cpu(), resize_img(mnist_mean.cpu().data)])
+                svhn_recon = torch.cat([gt[int(gt_idx)].cpu(), svhn_mean.cpu().data])
+                save_image(mnist_recon, '{}/{}x0_{:03d}.png'.format(runPath, key, epoch))
+                save_image(svhn_recon, '{}/{}x1_{:03d}.png'.format(runPath, key, epoch))
 
     best_loss = sys.maxsize
     for epoch in range(1, args.epochs + 1):
         train(epoch)
-        generate(N=8)
+        generate(N=8, K=9)
         test_loss = test()
         is_best   = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
