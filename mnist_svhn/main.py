@@ -2,17 +2,24 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
 
-import torch
-import torch.optim as optim
-from torchvision.utils import save_image, make_grid
-
 import os
 import sys
 import datetime
+
+import numpy as np
 from numpy import sqrt
 from pathlib import Path
 from tempfile import mkdtemp
 from collections import OrderedDict
+
+import torch
+import torch.optim as optim
+from torchvision.utils import save_image, make_grid
+
+import umap
+import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+from matplotlib.lines import Line2D
 
 from model import MVAE
 from utils import elbo_loss, AverageMeter, unpack_data, \
@@ -130,30 +137,9 @@ if __name__ == "__main__":
         print('====> Test Loss: {:.4f}'.format(test_loss_meter.avg))
         return test_loss_meter.avg
 
+
     def generate(N, K):
-        model.eval()
-        for batch_idx, dataT in enumerate(test_loader):
-            mnist, svhn = unpack_data(dataT, device=device)
-            break
-        gt = [mnist[:N], svhn[:N], torch.cat([resize_img(mnist[:N], svhn[:N]), svhn[:N]])]
-        zss = OrderedDict()
-
-        # mode 1: generate
-        zss['gen_samples'] = [torch.zeros((N * N, model.n_latents)).to(device),
-                              torch.ones((N * N, model.n_latents)).to(device)]
-
-        # mode 2: mnist --> mnist, mnist --> svhn
-        mu, logvar = model.infer(mnist=gt[0])
-        zss['recon_0'] = [mu, logvar.mul(0.5).exp_()]
-
-        # mode 3: svhn --> mnist, svhn --> svhn
-        mu, logvar = model.infer(svhn=gt[1])
-        zss['recon_1'] = [mu, logvar.mul(0.5).exp_()]
-
-        # mode 4: mnist, svhn --> mnist, mnist, svhn --> svhn
-        mu, logvar = model.infer(mnist=gt[0], svhn=gt[1])
-        zss['recon_2'] = [mu, logvar.mul(0.5).exp_()]
-
+        zss, gt = _sample(N)
         gt[0] = resize_img(gt[0], gt[1])
 
         for key, (mu, std) in zss.items():
@@ -183,15 +169,70 @@ if __name__ == "__main__":
                 save_image(torch.stack(ss), '{}/gen_samples_1_{:03d}.png'.format(runPath, epoch), nrow=N)
             else:
                 gt_idx = key.split('_')[-1]
-                mnist_recon = torch.cat([gt[int(gt_idx)].cpu(), resize_img(mnist_mean.cpu().data)])
+                mnist_recon = torch.cat([gt[int(gt_idx)].cpu(), resize_img(mnist_mean.cpu().data, svhn_mean)])
                 svhn_recon = torch.cat([gt[int(gt_idx)].cpu(), svhn_mean.cpu().data])
                 save_image(mnist_recon, '{}/{}x0_{:03d}.png'.format(runPath, key, epoch))
                 save_image(svhn_recon, '{}/{}x1_{:03d}.png'.format(runPath, key, epoch))
 
+    def analyse(N, K):
+        z_samples_dict, _ = _sample(N)
+        z_samples_dict['gen_samples'] = [torch.zeros((N, model.n_latents)).to(device),
+                                         torch.ones((N, model.n_latents)).to(device)]
+        z_samples = []
+
+        # draw K samples from each latent
+        for key, z in z_samples_dict.items():
+            sample = torch.randn(K, N, model.n_latents).to(device)
+            mu, std = z
+            z_samples.append(sample.mul(std).add_(mu).view(-1, model.n_latents))
+        z_labels = [torch.zeros_like(zs[:, 0]) + i for i, zs in enumerate(z_samples)]
+        zss = torch.cat(tuple(z_samples), dim=0).cpu().detach().numpy()
+        zls = torch.cat(tuple(z_labels), dim=0).cpu().detach().numpy()
+        z_legends = ['Prior', 'MNIST', 'SVHN', 'MNIST + SVHN']
+
+        embedding = umap.UMAP(n_neighbors=5,
+                              min_dist=0.1,
+                              metric='correlation').fit_transform(zss)
+        cmap_array = np.concatenate((plt.cm.Set2([7]),plt.cm.Set1([2,1,0])), axis=0)
+        color_map = colors.LinearSegmentedColormap.from_list('new_cmap', cmap_array)
+        plt.scatter(embedding[:, 0], embedding[:, 1], c=zls, cmap=color_map, s=5)
+        legend_elements = []
+        for i, (legend, cm) in enumerate(zip(z_legends, cmap_array)):
+            legend_elements.append(Line2D([0], [0], marker='o', color=cm, label=legend))
+        plt.legend(handles=legend_elements)
+        plt.savefig('{}/latents_{:03d}.png'.format(runPath, epoch))
+
+    def _sample(N):
+        model.eval()
+        for batch_idx, dataT in enumerate(test_loader):
+            mnist, svhn = unpack_data(dataT, device=device)
+            break
+        gt = [mnist[:N], svhn[:N], torch.cat([resize_img(mnist[:N], svhn[:N]), svhn[:N]])]
+        zss = OrderedDict()
+
+        # mode 1: generate
+        zss['gen_samples'] = [torch.zeros((N * N, model.n_latents)).to(device),
+                              torch.ones((N * N, model.n_latents)).to(device)]
+
+        # mode 2: mnist --> mnist, mnist --> svhn
+        mu, logvar = model.infer(mnist=gt[0])
+        zss['recon_0'] = [mu, logvar.mul(0.5).exp_()]
+
+        # mode 3: svhn --> mnist, svhn --> svhn
+        mu, logvar = model.infer(svhn=gt[1])
+        zss['recon_1'] = [mu, logvar.mul(0.5).exp_()]
+
+        # mode 4: mnist, svhn --> mnist, mnist, svhn --> svhn
+        mu, logvar = model.infer(mnist=gt[0], svhn=gt[1])
+        zss['recon_2'] = [mu, logvar.mul(0.5).exp_()]
+        return zss, gt
+
+
     best_loss = sys.maxsize
     for epoch in range(1, args.epochs + 1):
         train(epoch)
-        generate(N=8, K=9)
+        generate(N=8, K=9) # N: zs sample, K: px_z sample
+        analyse(N=args.batch_size, K=10)
         test_loss = test()
         is_best   = test_loss < best_loss
         best_loss = min(test_loss, best_loss)
