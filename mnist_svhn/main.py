@@ -195,6 +195,7 @@ if __name__ == "__main__":
                               metric='correlation').fit_transform(zss)
         cmap_array = np.concatenate((plt.cm.Set2([7]),plt.cm.Set1([2,1,0])), axis=0)
         color_map = colors.LinearSegmentedColormap.from_list('new_cmap', cmap_array)
+        plt.figure()
         plt.scatter(embedding[:, 0], embedding[:, 1], c=zls, cmap=color_map, s=5)
         legend_elements = []
         for i, (legend, cm) in enumerate(zip(z_legends, cmap_array)):
