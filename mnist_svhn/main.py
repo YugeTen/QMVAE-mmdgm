@@ -13,6 +13,7 @@ from tempfile import mkdtemp
 from collections import OrderedDict
 
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torchvision.utils import save_image, make_grid
 
@@ -23,8 +24,24 @@ from matplotlib.lines import Line2D
 
 from model import MVAE
 from utils import elbo_loss, AverageMeter, unpack_data, \
-    save_checkpoint,resize_img, Logger
+    save_checkpoint,resize_img, Logger, unpack_data_mlp, load_checkpoint
 
+class LatentMLP(nn.Module):
+    """ Generate latent parameters for SVHN image data. """
+
+    def __init__(self, in_n, out_n):
+        super(LatentMLP, self).__init__()
+        self.mlp = nn.Linear(in_n, out_n)
+        # self.mlp = nn.Sequential(
+        #     nn.Linear(in_n, 10),
+        #     nn.ReLU(True),
+        #     # nn.Linear(100, 100),
+        #     # nn.ReLU(True),
+        #     nn.Linear(10, 10)
+        # )
+
+    def forward(self, x):
+        return self.mlp(x)
 
 if __name__ == "__main__":
     import argparse
@@ -228,6 +245,66 @@ if __name__ == "__main__":
         zss['recon_2'] = [mu, logvar.mul(0.5).exp_()]
         return zss, gt
 
+    def latent_classification(epochs):
+        model=load_checkpoint('trained_models/model_best.pth.tar')
+        model.eval()
+
+        classifier = LatentMLP(20, 10).to(device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(classifier.parameters(), lr=0.001)
+
+        for epoch in range(epochs):  # loop over the dataset multiple times
+            running_loss = 0.0
+            total_iters = len(train_loader)
+            print('\n====> Epoch: {:03d} '.format(epoch))
+            for i, data in enumerate(train_loader):
+                # get the inputs
+                svhn, targets = unpack_data_mlp(data, option='svhn')
+                svhn, targets = svhn.to(device), targets.to(device)
+                # mnist, svhn, targets = unpack_data_mlp(data, option='both')
+                # mnist, svhn, targets = mnist.to(device), svhn.to(device), targets.to(device)
+                with torch.no_grad():
+                    # mu, logvar = model.infer(mnist=mnist, svhn=svhn)
+                    mu, logvar = model.infer(svhn=svhn)
+                    zss = [mu, logvar.mul_(0.5).exp_()]
+                sample = torch.randn(mu.shape).to(device)
+                sample.mul_(zss[1]).add_(zss[0]).view(-1, mu.shape[-1])
+                optimizer.zero_grad()
+                outputs = classifier(sample)
+                loss = criterion(outputs, targets)
+                loss.backward()
+                optimizer.step()
+                # print statistics
+                running_loss += loss.item()
+                if (i + 1) % 1000 == 0:
+                    _, predicted = torch.max(outputs.data, 1)
+                    correct = (predicted == targets).sum().item()
+                    print('iteration {:04d}/{:d}: loss: {:6.3f},'
+                          ' acc: {:6.3f}'.format(i + 1, total_iters, running_loss / 1000, correct/targets.size(0)))
+                    running_loss = 0.0
+        print('Finished Training, calculating test loss...')
+
+        classifier.eval()
+        total = 0
+        correct = 0
+        with torch.no_grad():
+            for i, data in enumerate(test_loader):
+                # mnist, svhn, targets = unpack_data_mlp(data, option='both')
+                # mnist, svhn, targets = mnist.to(device), svhn.to(device), targets.to(device)
+                # mu, logvar = model.infer(mnist=mnist, svhn=svhn)
+                svhn, targets = unpack_data_mlp(data, option='svhn')
+                svhn, targets = svhn.to(device), targets.to(device)
+                mu, logvar = model.infer(svhn=svhn)
+                zss = [mu, logvar.mul_(0.5).exp_()]
+                sample = torch.randn(mu.shape).to(device)
+                sample.mul_(zss[1]).add_(zss[0]).view(-1, mu.shape[-1])
+                outputs = classifier(sample)
+                _, predicted = torch.max(outputs.data, 1)
+                total += targets.size(0)
+                correct += (predicted == targets).sum().item()
+        print('The classifier correctly classified {} out of {} examples. Accuracy: '
+              '{:.2f}%'.format(correct, total, (correct / total) * 100))
+
 
     best_loss = sys.maxsize
     for epoch in range(1, args.epochs + 1):
@@ -244,3 +321,4 @@ if __name__ == "__main__":
             'n_latents': args.n_latents,
             'optimizer' : optimizer.state_dict(),
         }, is_best, folder=runPath)
+    # latent_classification(1)

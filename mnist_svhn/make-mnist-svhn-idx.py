@@ -15,7 +15,7 @@ test_svhn = datasets.SVHN('data', split='test', download=True,
 train_svhn.labels = torch.LongTensor(train_svhn.labels.squeeze().astype(int)) % 10
 test_svhn.labels = torch.LongTensor(test_svhn.labels.squeeze().astype(int)) % 10
 
-dm = 10                         # data multiplier: random permutations to match
+dm = 30                         # data multiplier: random permutations to match
 
 # Get pairs of mnist-svhn data by choosing the min of size for each label
 # available:
@@ -36,7 +36,7 @@ print('len train idx:', len(m_i), len(s_i))
 torch.save(m_i, 'data/train-ms-mnist-idx.pt')
 torch.save(s_i, 'data/train-ms-svhn-idx.pt')
 
-dm = 10                         # data multiplier: random permutations to match
+dm = 30                         # data multiplier: random permutations to match
 
 # for test
 mnist_l, mnist_li = test_mnist.targets.sort()

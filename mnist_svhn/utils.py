@@ -142,3 +142,13 @@ class Logger(object):
         # you might want to specify some extra behavior here.
         pass
 
+def unpack_data_mlp(dataB, option='both'):
+    if len(dataB[0])==2:
+        if option == 'both':
+            return dataB[0][0], dataB[1][0], dataB[1][1]
+        elif option == 'svhn':
+            return dataB[1][0], dataB[1][1]
+        elif option == 'mnist':
+            return dataB[0][0], dataB[0][1]
+    else:
+        return dataB
