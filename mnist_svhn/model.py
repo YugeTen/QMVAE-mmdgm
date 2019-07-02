@@ -35,7 +35,7 @@ class MVAE(nn.Module):
         self.mnist_dec = MNISTDecoder(n_latents)
         self.svhn_enc  = SVHNEncoder(n_latents)
         self.svhn_dec  = SVHNDecoder(n_latents)
-        self.experts       = ProductOfExperts()
+        self.experts       = MixtureOfExperts()
         self.n_latents     = n_latents
 
     def getDataLoaders(self, batch_size, shuffle=True, device='cuda'):
@@ -232,8 +232,9 @@ class ProductOfExperts(nn.Module):
     """Return parameters for product of independent experts.
     See https://arxiv.org/pdf/1410.7827.pdf for equations.
 
-    @param mu: M x D for M experts
-    @param logvar: M x D for M experts
+    @param mu: M+1 x B x D for M experts
+    @param logvar: M+1 x B x D for M experts
+    (row 0 is always all zeros)
     """
     def forward(self, mu, logvar, eps=1e-8):
         var       = torch.exp(logvar) + eps
@@ -243,6 +244,23 @@ class ProductOfExperts(nn.Module):
         pd_var    = 1. / torch.sum(T, dim=0)
         pd_logvar = torch.log(pd_var + eps)
         return pd_mu, pd_logvar
+
+class MixtureOfExperts(nn.Module):
+    """Return parameters for product of independent experts.
+    See https://arxiv.org/pdf/1410.7827.pdf for equations.
+
+    @param mu: M+1 x B x D for M experts
+    @param logvar: M+1 x B x D for M experts
+    (row 0 is always all zeros)
+    """
+    def forward(self, mu, logvar, eps=1e-8):
+        if mu.shape[0] == 2:
+            return mu[-1], logvar[-1]
+        else:
+            B = mu.shape[1]
+            mu, logvar = torch.cat([mu[1,:B//2], mu[2, B//2:]]), \
+                         torch.cat([logvar[1,:B//2], logvar[2, B//2:]])
+            return mu, logvar
 
 
 class Swish(nn.Module):
