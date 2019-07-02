@@ -52,6 +52,8 @@ if __name__ == "__main__":
                         help='input batch size for training [default: 128]')
     parser.add_argument('--epochs', type=int, default=50, metavar='N',
                         help='number of epochs to train [default: 500]')
+    parser.add_argument('--expert', type=str, default='MoE', choices=['MoE', 'PoE'],
+                        help='Type of expert to use, choose between mixture of experts and product of experts')
     parser.add_argument('--annealing-epochs', type=int, default=200, metavar='N',
                         help='number of epochs to anneal KL for [default: 200]')
     parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
@@ -77,7 +79,7 @@ if __name__ == "__main__":
     print('Expt:', runPath)
     print('RunID:', runId)
 
-    model     = MVAE(args.n_latents)
+    model     = MVAE(args.n_latents, args.expert.lower())
     model.to(device)
     train_loader, test_loader = model.getDataLoaders(args.batch_size, device=device)
     N_mini_batches = len(train_loader)
@@ -107,9 +109,9 @@ if __name__ == "__main__":
             recon_mnist_3, recon_svhn_3, mu_3, logvar_3 = model(text=svhn)
 
             # compute ELBO for each data combo
-            # joint_loss = elbo_loss(recon_mnist_1, mnist, recon_svhn_1, svhn, mu_1, logvar_1,
-            #                        lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
-            #                        annealing_factor=annealing_factor)
+            joint_loss = elbo_loss(recon_mnist_1, mnist, recon_svhn_1, svhn, mu_1, logvar_1,
+                                   lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
+                                   annealing_factor=annealing_factor)
             mnist_loss = elbo_loss(recon_mnist_2, mnist, None, None, mu_2, logvar_2,
                                    lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
                                    annealing_factor=annealing_factor)

@@ -29,13 +29,13 @@ class MVAE(nn.Module):
     @param n_latents: integer
                       number of latent dimensions
     """
-    def __init__(self, n_latents):
+    def __init__(self, n_latents, expert):
         super(MVAE, self).__init__()
         self.mnist_enc = MNISTEncoder(n_latents)
         self.mnist_dec = MNISTDecoder(n_latents)
         self.svhn_enc  = SVHNEncoder(n_latents)
         self.svhn_dec  = SVHNDecoder(n_latents)
-        self.experts       = MixtureOfExperts()
+        self.experts       = MixtureOfExperts() if expert=="moe" else ProductOfExperts()
         self.n_latents     = n_latents
 
     def getDataLoaders(self, batch_size, shuffle=True, device='cuda'):
