@@ -172,9 +172,9 @@ if __name__ == "__main__":
                 sample = sample.mul(std).add_(mu)
 
             # generate
-            mnist_mean = torch.sigmoid(model.mnist_dec(sample)).view(-1, 1, 28, 28)
+            mnist_mean = torch.sigmoid(model.image_dec(sample)).view(-1, 1, 28, 28)
             mnist_std = torch.tensor([0.1]).expand_as(mnist_mean).to(device)
-            svhn_mean = torch.sigmoid(model.svhn_dec(sample)).view(-1, 3, 32, 32)
+            svhn_mean = torch.sigmoid(model.sent_dec(sample)).view(-1, 3, 32, 32)
             svhn_std = torch.tensor([0.1]).expand_as(svhn_mean).to(device)
 
             if key == 'gen_samples':
@@ -236,15 +236,15 @@ if __name__ == "__main__":
                               torch.ones((N * N, model.n_latents)).to(device)]
 
         # mode 2: mnist --> mnist, mnist --> svhn
-        mu, logvar = model.infer(mnist=gt[0])
+        mu, logvar = model.infer(image=gt[0])
         zss['recon_0'] = [mu, logvar.mul(0.5).exp_()]
 
         # mode 3: svhn --> mnist, svhn --> svhn
-        mu, logvar = model.infer(svhn=gt[1])
+        mu, logvar = model.infer(sent=gt[1])
         zss['recon_1'] = [mu, logvar.mul(0.5).exp_()]
 
         # mode 4: mnist, svhn --> mnist, mnist, svhn --> svhn
-        mu, logvar = model.infer(mnist=gt[0], svhn=gt[1])
+        mu, logvar = model.infer(image=gt[0], sent=gt[1])
         zss['recon_2'] = [mu, logvar.mul(0.5).exp_()]
         return zss, gt
 
@@ -268,7 +268,7 @@ if __name__ == "__main__":
                 # mnist, svhn, targets = mnist.to(device), svhn.to(device), targets.to(device)
                 with torch.no_grad():
                     # mu, logvar = model.infer(mnist=mnist, svhn=svhn)
-                    mu, logvar = model.infer(svhn=svhn)
+                    mu, logvar = model.infer(sent=svhn)
                     zss = [mu, logvar.mul_(0.5).exp_()]
                 sample = torch.randn(mu.shape).to(device)
                 sample.mul_(zss[1]).add_(zss[0]).view(-1, mu.shape[-1])
@@ -297,7 +297,7 @@ if __name__ == "__main__":
                 # mu, logvar = model.infer(mnist=mnist, svhn=svhn)
                 svhn, targets = unpack_data_mlp(data, option='svhn')
                 svhn, targets = svhn.to(device), targets.to(device)
-                mu, logvar = model.infer(svhn=svhn)
+                mu, logvar = model.infer(sent=svhn)
                 zss = [mu, logvar.mul_(0.5).exp_()]
                 sample = torch.randn(mu.shape).to(device)
                 sample.mul_(zss[1]).add_(zss[0]).view(-1, mu.shape[-1])
