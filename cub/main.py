@@ -65,6 +65,10 @@ if __name__ == "__main__":
     experiment_dir.mkdir(parents=True, exist_ok=True)
     runPath = mkdtemp(prefix=runId, dir=str(experiment_dir))
     sys.stdout = Logger('{}/run.log'.format(runPath))
+    # save args to run
+    with open('{}/args.json'.format(runPath), 'w') as fp:
+        json.dump(args.__dict__, fp)
+
     print('Expt:', runPath)
     print('RunID:', runId)
 
