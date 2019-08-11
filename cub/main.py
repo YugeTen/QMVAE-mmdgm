@@ -98,21 +98,21 @@ if __name__ == "__main__":
             batch_size = len(mnist)
             optimizer.zero_grad()
             recon_mnist_1, recon_svhn_1, mu_1, logvar_1 = model(mnist, svhn)
-            recon_mnist_2, recon_svhn_2, mu_2, logvar_2 = model(mnist)
-            recon_mnist_3, recon_svhn_3, mu_3, logvar_3 = model(text=svhn)
+            # recon_mnist_2, recon_svhn_2, mu_2, logvar_2 = model(mnist)
+            # recon_mnist_3, recon_svhn_3, mu_3, logvar_3 = model(text=svhn)
 
             # compute ELBO for each data combo
             joint_loss = elbo_loss(recon_mnist_1, mnist, recon_svhn_1, svhn, mu_1, logvar_1,
                                    lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
                                    annealing_factor=annealing_factor)
-            mnist_loss = elbo_loss(recon_mnist_2, mnist, None, None, mu_2, logvar_2,
-                                   lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
-                                   annealing_factor=annealing_factor)
-            svhn_loss  = elbo_loss(None, None, recon_svhn_3, svhn, mu_3, logvar_3,
-                                   lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
-                                   annealing_factor=annealing_factor)
-            train_loss = joint_loss + mnist_loss + svhn_loss
-            # train_loss = mnist_loss + svhn_loss
+            # mnist_loss = elbo_loss(recon_mnist_2, mnist, None, None, mu_2, logvar_2,
+            #                        lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
+            #                        annealing_factor=annealing_factor)
+            # svhn_loss  = elbo_loss(None, None, recon_svhn_3, svhn, mu_3, logvar_3,
+            #                        lambda_mnist=args.lambda_mnist, lambda_svhn=args.lambda_svhn,
+            #                        annealing_factor=annealing_factor)
+            # train_loss = joint_loss + mnist_loss + svhn_loss
+            train_loss = joint_loss
             train_loss_meter.update(train_loss.data.item(), batch_size)
             
             # compute gradients and take step
